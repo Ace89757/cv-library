@@ -17,7 +17,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
     parser.add_argument('config', help='train config file path')
     parser.add_argument('--work-dir', help='the dir to save logs and models')
-    parser.add_argument('--task', default='det2d', help='model task, Currently supports "det2d ", "mono3d"')
+    parser.add_argument('--task', default='det2d', help='model task, Currently supports "det2d "')
     parser.add_argument('--prefix', default='baseline', help='The prefix of the task.')
     parser.add_argument('--resume', action='store_true', help='resume from checkpoint.')
     parser.add_argument('--pretrained', type=str, default=None, help='pretrained model.')
@@ -30,7 +30,7 @@ def parse_args():
                              'Note that the quotation marks are necessary and that no white space is allowed.')
 
     parser.add_argument('--distributed', action='store_true', help='distributed training.')
-    parser.add_argument('--auto-scale-lr', action='store_true', default=True, help='enable automatically scaling LR.')
+    parser.add_argument('--auto-scale-lr', action='store_true', help='enable automatically scaling LR.')
 
     # When using PyTorch version >= 2.0.0, the "torch.distributed.launch" will pass the "--local-rank" parameter to "tools/train.py" instead of "--local_rank".
     parser.add_argument('--local_rank', '--local-rank', type=int, default=0)
