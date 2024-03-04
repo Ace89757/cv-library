@@ -66,19 +66,14 @@ mim install 'mmcv>=2.0.0rc4'
 mim install 'mmdet>=3.0.0'
 ~~~
 
-**步骤6. 使用mim将 mmdet3d 作为依赖或第三方 Python 包安装**
 
-~~~Bash
-mim install "mmdet3d>=1.1.0rc0"
-~~~
-
-**步骤7. 安装相关依赖包**
+**步骤6. 安装相关依赖包**
 
 ~~~bash
 pip install future tensorboard
 ~~~
 
-**步骤8. 将alchemy作为Python包以开发模式安装**
+**步骤7. 将alchemy作为Python包以开发模式安装**
 
 ~~~bash
 python setup.py develop
