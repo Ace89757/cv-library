@@ -45,10 +45,6 @@ class AlchemyDet2dDataset(AlchemyBaseDataset):
         
         data_info['width'] = img_info['width']
         data_info['height'] = img_info['height']
-        
-        if self.return_classes:
-            data_info['text'] = self.metainfo['classes']
-            data_info['custom_entities'] = True
 
         instances = []
         for ann in self.coco.load_anns(ann_ids):
@@ -79,7 +75,7 @@ class AlchemyDet2dDataset(AlchemyBaseDataset):
                 instance['ignore_flag'] = 0
 
             instance['bbox'] = bbox
-            instance['bbox_label'] = self.cat2label[category_id]
+            instance['bbox_label'] = category_id - 1
 
             instances.append(instance)
 
@@ -88,9 +84,6 @@ class AlchemyDet2dDataset(AlchemyBaseDataset):
         return data_info
 
     def load_data_list(self) -> List[dict]:
-        """
-        
-        """
         assert os.path.exists(self.ann_file), FileExistsError(f'{self.ann_file} is not exists!!')
 
         # load & parse data
@@ -98,16 +91,13 @@ class AlchemyDet2dDataset(AlchemyBaseDataset):
 
         with get_local_path(self.ann_file, backend_args=self.backend_args) as local_path:
             self.coco = COCO(local_path)
-        
-        # {class_name: class_id}
+
+        # {class_name: class_id} 原始文件中的categories信息
         self._dataset_category = {cat['name']: cat['id'] for cat in self.coco.dataset['categories']}
         
         # cat_ids的顺序不会随着metainfo['classes']中的顺序改变
-        self.cat_ids = [idx for name, idx in self._dataset_category.items() if name in self.metainfo['classes']]
-        self.cat_names ={cat_id: name for name, cat_id in self._dataset_category.items()}
-        
-        self.cat2label = {cat_id: i for i, cat_id in enumerate(self.cat_ids)}            # cat_id -> lable
-        self.label2cat = {label: cat_id for cat_id, label in self.cat2label.items()}     # label -> cat_id
+        self.cat_ids = [idx for name, idx in self._dataset_category.items() if name in self.metainfo['classes']]  # 这个是annotation中categories字段的顺序
+        self.cat_names ={cat_id: name for name, cat_id in self._dataset_category.items()}  # {cat_id: cat_name} 可以将类别id转成成类别名称
 
         # img_ids for every category
         self.cat_img_map = deepcopy(self.coco.cat_img_map)
@@ -168,7 +158,7 @@ class AlchemyDet2dDataset(AlchemyBaseDataset):
         for data_info in valid_data_infos:
             for instance in data_info['instances']:
                 label = instance['bbox_label']
-                category_id = self.label2cat[label]
+                category_id = label + 1
                 cat_name = self.cat_names[category_id]
 
                 if cat_name not in self.category_info:

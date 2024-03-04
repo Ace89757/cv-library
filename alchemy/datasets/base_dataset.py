@@ -20,15 +20,18 @@ from ..utils import heading_line
 class AlchemyBaseDataset(BaseDataset):
     DATASET_TYPE = 'Alchemy Base Dataset'
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, backend_args: dict = None, *args, **kwargs):
         self.category_info = dict()
+        self.backend_args = backend_args
+        
         super().__init__(*args, **kwargs)
 
         # load func
         self.load_func = self.load_test_data if self.test_mode else self.load_train_data
 
         # 显示数据集信息
-        self.print_dataset
+        if self._fully_initialized:
+            self.print_dataset
     
     @classmethod
     def _load_metainfo(cls, metainfo: Union[Mapping, Config, None] = None) -> dict:
