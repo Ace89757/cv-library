@@ -2,6 +2,7 @@
 # @Author  : ace
 # Copyright by Ace, All Rights Reserved.
 
+import time
 import torch
 import torch.nn as nn
 
@@ -134,6 +135,12 @@ class AlchemyDet2dDetector(BaseModel):
 
         losses = dict()
 
+        # inputs
+        head_inputs = dict(
+                img_feats=img_feats,
+                batch_data_samples=batch_data_samples
+            )
+
         # rpn
         if self.has_rpn:
             rpn_data_samples = deepcopy(batch_data_samples)
@@ -145,12 +152,10 @@ class AlchemyDet2dDetector(BaseModel):
             rpn_losses, rpn_results_list = self.rpn.loss_and_predict(img_feats, rpn_data_samples)
 
             losses.update(rpn_losses)
-            head_inputs = (img_feats, batch_data_samples, rpn_results_list)
-        else:
-            head_inputs = (img_feats, batch_data_samples)
+            head_inputs.update(proposals_list=rpn_results_list)
         
         # head
-        head_losses = self.head.loss(*head_inputs)
+        head_losses = self.head.loss(**head_inputs)
         losses.update(head_losses)
 
         return losses
@@ -175,6 +180,12 @@ class AlchemyDet2dDetector(BaseModel):
         """
         img_feats = self.extract_feat(batch_inputs)
 
+        # inputs
+        head_inputs = dict(
+                img_feats=img_feats,
+                batch_data_samples=batch_data_samples
+            )
+
         # rpn
         if self.has_rpn:
             # 如果没有预定义的proposals则使用rpn生成proposals
@@ -183,12 +194,10 @@ class AlchemyDet2dDetector(BaseModel):
             else:
                 rpn_results_list = [data_sample.proposals for data_sample in batch_data_samples]
 
-            head_inputs = (img_feats, batch_data_samples, rpn_results_list)
-        else:
-            head_inputs = (img_feats, batch_data_samples)
+            head_inputs.update(proposals_list=rpn_results_list)
 
         # head
-        results_list = self.head.predict(*head_inputs, rescale=rescale)
+        results_list = self.head.predict(**head_inputs, rescale=rescale)
 
         if return_tensor:
             return results_list
@@ -220,7 +229,7 @@ class AlchemyDet2dDetector(BaseModel):
         samplelist_boxtype2tensor(data_samples)
 
         return data_samples
-    
+
     @property
     def has_rpn(self) -> bool:
         return hasattr(self, 'rpn') and self.rpn is not None
