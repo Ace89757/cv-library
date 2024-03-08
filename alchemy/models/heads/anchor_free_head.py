@@ -11,7 +11,7 @@ from mmengine.model import BaseModule, constant_init
 from mmdet.utils import InstanceList
 from mmdet.structures import SampleList
 from mmdet.models.utils import unpack_gt_instances
-from mmdet.utils import InstanceList, OptMultiConfig
+from mmdet.utils import InstanceList, OptMultiConfig, OptConfigType
 
 
 class AnchorFreeDet2dHead(BaseModule):
@@ -45,15 +45,19 @@ class AnchorFreeDet2dHead(BaseModule):
     def __init__(self,
                  in_channels: int,
                  num_classes: int,
+                 conv_cfg: OptConfigType = None,
+                 norm_cfg: OptConfigType = None,
                  test_cfg: OptMultiConfig = None,
                  init_cfg: OptMultiConfig = None,
                  train_cfg: OptMultiConfig = None) -> None:
         super().__init__(init_cfg=init_cfg)
 
         # args
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
         self.in_channels = in_channels
         self.num_classes = num_classes
-
+        
         # cfg
         self.test_cfg = test_cfg
         self.train_cfg = train_cfg

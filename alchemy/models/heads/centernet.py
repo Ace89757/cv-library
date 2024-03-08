@@ -14,7 +14,7 @@ from mmcv.cnn import ConvModule
 from mmengine.structures import InstanceData
 from mmengine.model import bias_init_with_prob, normal_init
 
-from mmdet.utils import ConfigType, OptMultiConfig, InstanceList, OptInstanceList
+from mmdet.utils import ConfigType, OptMultiConfig, InstanceList, OptInstanceList, OptConfigType
 from mmdet.models.utils import gaussian_radius, gen_gaussian_target, multi_apply, transpose_and_gather_feat
 
 from ...registry import MODELS
@@ -32,6 +32,8 @@ class AlchemyCenterNet(AnchorFreeDet2dHead):
                  loss_wh: ConfigType = dict(type='mmdet.L1Loss', loss_weight=0.1),
                  loss_offset: ConfigType = dict(type='mmdet.L1Loss', loss_weight=1.0),
                  loss_heatmap: ConfigType = dict(type='mmdet.GaussianFocalLoss', loss_weight=1.0),
+                 conv_cfg: OptConfigType = None,
+                 norm_cfg: OptConfigType = None,
                  test_cfg: OptMultiConfig = None,
                  init_cfg: OptMultiConfig = None,
                  train_cfg: OptMultiConfig = None) -> None:
@@ -41,7 +43,7 @@ class AlchemyCenterNet(AnchorFreeDet2dHead):
         self.class_agnostic = class_agnostic
         self.wh_dim = 2 if self.class_agnostic else 2 * num_classes
 
-        super().__init__(init_cfg=init_cfg, test_cfg=test_cfg, train_cfg=train_cfg, in_channels=in_channels, num_classes=num_classes)
+        super().__init__(init_cfg=init_cfg, test_cfg=test_cfg, train_cfg=train_cfg, in_channels=in_channels, num_classes=num_classes, conv_cfg=conv_cfg, norm_cfg=norm_cfg)
 
         # init loss
         self.loss_wh = MODELS.build(loss_wh)
@@ -185,10 +187,10 @@ class AlchemyCenterNet(AnchorFreeDet2dHead):
         Return:
             The Sequential of head layer.
         """
-        head_convs = [ConvModule(self.in_channels, feat_channels, 3, padding=1)]
+        head_convs = [ConvModule(self.in_channels, feat_channels, 3, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg)]
         
         for _ in range(num_convs - 1):
-            head_convs.append(ConvModule(feat_channels, feat_channels, 3, padding=1))
+            head_convs.append(ConvModule(feat_channels, feat_channels, 3, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
 
         head_convs.append(nn.Conv2d(feat_channels, out_channels, 1))
 
