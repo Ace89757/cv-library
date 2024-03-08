@@ -6,12 +6,18 @@ _base_ = [
     '../../../_base_/runtimes/det2d.py',
     '../../../_base_/datasets/det2d_bdd100k.py',
     '../../../_base_/pipelines/det2d_default.py',
-    '../../../_base_/lr_schedules/schedule_2x.py'
+    '../../../_base_/lr_schedules/schedule_1x.py'
 ]
 
-
-batch_size = 8
+batch_size = 32
 score_thr = 0.35
+
+times = 1
+epoch_1x = 12
+milestones_1x = [8, 11]
+
+max_epochs = int(epoch_1x * times)
+milestones = [int(x * times) for x in milestones_1x]
 
 
 """
@@ -41,21 +47,27 @@ model = dict(
         init_cfg=pretrained
     ),
     neck=dict(
-        type='AlchemyCTResNetNeck',
-        in_channels=512,
-        num_deconv_filters=(256, 128, 64),
-        num_deconv_kernels=(4, 4, 4),
-        use_dcn=False,
-        upsample_mode='nearest'
-        ),
+        type='AlchemyFPN',
+        in_channels=[64, 128, 256, 512],
+        out_channels=128,
+        extra_layers_source='on_output',
+        out_indices=(0, 1, 2, 3, 4)
+    ),
     head=dict(
-        type='AlchemyCenterNet',
-        in_channels=64,
-        num_convs=1,
+        type='AlchemyFCOS',
+        in_channels=128,
+        stacked_convs=4,
         feat_channels=128,
-        class_agnostic=True, 
+        norm_on_bbox=True,
+        center_sampling=True,
+        centerness_on_reg=True,
+        strides=[4, 8, 16, 32, 64], 
         num_classes={{_base_.num_classes}},
-        test_cfg=dict(topk=100, local_maximum_kernel=3, score_thr=score_thr))
+        norm_cfg = norm_cfg,
+        loss_bbox=dict(type='EfficientIoULoss', loss_weight=1.0),
+        loss_centerness=dict(type='mmdet.CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+        loss_cls=dict(type='mmdet.FocalLoss', use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0),
+        test_cfg=dict(nms_pre=1000, min_bbox_size=0, score_thr=score_thr, nms=dict(type='nms', iou_threshold=0.5), max_per_img=100))
     )
 
 
@@ -91,4 +103,24 @@ test_dataloader = val_dataloader
 """
 auto scale lr
 """
-auto_scale_lr = dict(base_batch_size=16)
+auto_scale_lr = dict(enable=True)
+
+
+"""
+learning rate
+"""
+param_scheduler = [
+    dict(type='ConstantLR', factor=1.0 / 3, by_epoch=False, begin=0, end=500),
+    dict(type='MultiStepLR', begin=0, end=max_epochs, by_epoch=True, milestones=milestones, gamma=0.1)
+]
+
+
+"""
+optimizer
+"""
+optim_wrapper = dict(
+    optimizer=dict(lr=0.01),
+    paramwise_cfg=dict(bias_lr_mult=2., bias_decay_mult=0.),
+    clip_grad=dict(max_norm=35, norm_type=2))
+
+train_cfg = dict(max_epochs=max_epochs)

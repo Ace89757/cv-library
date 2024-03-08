@@ -21,8 +21,8 @@ data_preprocessor = dict(
 pipeline
 """
 
-input_h = 480
-input_w = 800
+input_h = 288
+input_w = 512
 train_pipeline = [
     dict(type='mmdet.LoadImageFromFile', backend_args=backend_args, to_float32=True),
     dict(type='mmdet.LoadAnnotations', with_bbox=True),
