@@ -3,9 +3,12 @@
 # Copyright by Ace, All Rights Reserved.
 
 from .centernet import AlchemyCenterNet
+from .ttfnet import AlchemyTTFNet
+from .ttfnet_plus import AlchemyTTFNetPlus
+from .fcos import AlchemyFCOS
 
 
 __all__ = [
     # det2d
-    'AlchemyCenterNet'
+    'AlchemyCenterNet', 'AlchemyTTFNet', 'AlchemyTTFNetPlus', 'AlchemyFCOS'
 ]
