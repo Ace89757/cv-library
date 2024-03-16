@@ -87,11 +87,8 @@ class AlchemyFPN(BaseModule):
                 self.add_extra_layers = True   # 如果输出的层索引大于输入的层数, 就需要额外层
                 self.num_extra_levels += 1
 
-        # 判断额外层的输入在哪个阶段
-        if extra_layers_source is not None:
-            assert extra_layers_source in ('on_input', 'on_lateral', 'on_output')
-        elif extra_layers_source:  # True
-            extra_layers_source = 'on_input'
+        # 额外层的输入使用哪个阶段
+        assert extra_layers_source in ('on_input', 'on_lateral', 'on_output')
         self.extra_layers_source = extra_layers_source
 
         # 构建额外层
@@ -118,24 +115,21 @@ class AlchemyFPN(BaseModule):
     
     def _build_fpn_layers(self) -> nn.ModuleList:
         fpn_convs = nn.ModuleList()
-        if self.num_outs > self.num_ins:
-            num_fpns = self.num_ins
-        else:
-            num_fpns = self.num_outs
 
-        for _ in range(num_fpns):
-            fpn_convs.append(
-                ConvModule(
-                    self.out_channels,
-                    self.out_channels,
-                    kernel_size=3,
-                    stride=1,
-                    padding=1,
-                    conv_cfg=self.conv_cfg,
-                    norm_cfg=self.norm_cfg,
-                    act_cfg=self.act_cfg,
-                    inplace=False)
-            )
+        for out_ind in self.out_indices:
+            if out_ind < self.num_ins:
+                fpn_convs.append(
+                    ConvModule(
+                        self.out_channels,
+                        self.out_channels,
+                        kernel_size=3,
+                        stride=1,
+                        padding=1,
+                        conv_cfg=self.conv_cfg,
+                        norm_cfg=self.norm_cfg,
+                        act_cfg=self.act_cfg,
+                        inplace=False)
+                    )
         
         return fpn_convs
 
@@ -193,10 +187,12 @@ class AlchemyFPN(BaseModule):
         # build outputs
         # part 1: from original levels
         outs = []
-        for idx, ind in enumerate(self.out_indices):
-            if ind < self.num_ins:
-                outs.append(self.fpn_convs[idx](laterals[ind]))
-
+        fpn_ind = 0
+        for idx, out_ind in enumerate(self.out_indices):
+            if out_ind < self.num_ins:
+                fpn_ind = idx
+                outs.append(self.fpn_convs[fpn_ind](laterals[out_ind - self.start_level]))
+                
         # part 2: add extra levels
         if self.add_extra_layers:
             if self.extra_layers_source == 'on_input':
@@ -208,12 +204,14 @@ class AlchemyFPN(BaseModule):
             else:
                 raise NotImplementedError
 
-            outs.append(self.fpn_convs[len(outs)](extra_source))
+            fpn_ind = len(outs)
+            outs.append(self.fpn_convs[fpn_ind](extra_source))
             
-            for i in self.out_indices[len(outs):]:
+            for _ in self.out_indices[len(outs):]:
+                fpn_ind += 1
                 if self.relu_before_extra_convs:
-                    outs.append(self.fpn_convs[i](F.relu(outs[-1])))
+                    outs.append(self.fpn_convs[fpn_ind](F.relu(outs[-1])))
                 else:
-                    outs.append(self.fpn_convs[i](outs[-1]))
+                    outs.append(self.fpn_convs[fpn_ind](outs[-1]))
 
         return tuple(outs)
