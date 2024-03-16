@@ -47,12 +47,14 @@ class AnchorFreeDet2dHead(BaseModule):
                  num_classes: int,
                  conv_cfg: OptConfigType = None,
                  norm_cfg: OptConfigType = None,
+                 act_cfg: OptConfigType = None,
                  test_cfg: OptMultiConfig = None,
                  init_cfg: OptMultiConfig = None,
                  train_cfg: OptMultiConfig = None) -> None:
         super().__init__(init_cfg=init_cfg)
 
         # args
+        self.act_cfg = act_cfg
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
         self.in_channels = in_channels
