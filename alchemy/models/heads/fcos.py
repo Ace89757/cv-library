@@ -36,11 +36,10 @@ class AlchemyFCOS(AnchorFreeDet2dHead):
                  num_classes: int,
                  feat_channels: int,
                  stacked_convs: int,
-                 norm_on_bbox: bool = False,
                  center_sampling: bool = False,
                  centerness_on_reg: bool = False,
                  center_sample_radius: float = 1.5,
-                 strides: StrideType = (4, 8, 16, 32, 64),
+                 strides: StrideType = (8, 16, 32, 64, 128),
                  regress_ranges: RangeType = ((-1, 64), (64, 128), (128, 256), (256, 512), (512, INF)),
                  loss_cls: ConfigType = dict(type='mmdet.FocalLoss', use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0),
                  loss_bbox: ConfigType = dict(type='EfficientIoULoss', loss_weight=1.0),
@@ -53,7 +52,6 @@ class AlchemyFCOS(AnchorFreeDet2dHead):
         
         # args
         self.strides = strides
-        self.norm_on_bbox = norm_on_bbox
         self.feat_channels = feat_channels
         self.stacked_convs = stacked_convs
         self.regress_ranges = regress_ranges
@@ -130,7 +128,7 @@ class AlchemyFCOS(AnchorFreeDet2dHead):
         Args:
             img_feat (Tensor): FPN feature maps of the specified stride.
             scale (:obj:`mmcv.cnn.Scale`): Learnable scale module to resize the bbox prediction.
-            stride (int): The corresponding stride for feature maps, only used to normalize the bbox prediction when self.norm_on_bbox is True.
+            stride (int): The corresponding stride for feature maps.
 
         Returns:
             tuple: scores for each class, bbox predictions and centerness
@@ -148,16 +146,7 @@ class AlchemyFCOS(AnchorFreeDet2dHead):
         bbox_pred = self.reg_head(reg_feat)
 
         # scale the bbox_pred of different level float to avoid overflow when enabling FP16
-        bbox_pred = scale(bbox_pred).float()
-        if self.norm_on_bbox:
-            # bbox_pred needed for gradient computation has been modified
-            # by F.relu(bbox_pred) when run with PyTorch 1.10. So replace
-            # F.relu(bbox_pred) with bbox_pred.clamp(min=0)
-            bbox_pred = bbox_pred.clamp(min=0)
-            if not self.training:
-                bbox_pred *= stride
-        else:
-            bbox_pred = bbox_pred.exp()
+        bbox_pred = scale(bbox_pred).float().clamp(min=0) * stride
 
         # centerness
         if self.centerness_on_reg:
@@ -194,7 +183,7 @@ class AlchemyFCOS(AnchorFreeDet2dHead):
         # 获取每层特征图的尺寸
         featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
 
-        # 根据每层特征图的尺寸, 生成特征图的坐标点
+        # 根据每层特征图的尺寸, 生成点坐标(这里的坐标是指在输入图上的坐标)
         mlvl_points = self.mlvl_points_generator.grid_priors(featmap_sizes, dtype=bbox_preds[0].dtype,  device=bbox_preds[0].device)
 
         # generate ground-truth
@@ -226,8 +215,7 @@ class AlchemyFCOS(AnchorFreeDet2dHead):
         flatten_bbox_targets = torch.cat(batch_gt_bboxes)
 
         # repeat points to align with bbox_preds
-        flatten_points = torch.cat(
-            [points.repeat(bs, 1) for points in mlvl_points])
+        flatten_points = torch.cat([points.repeat(bs, 1) for points in mlvl_points])
 
         # FG cat_id: [0, num_classes -1], BG cat_id: num_classes
         bg_class_ind = self.num_classes
@@ -360,9 +348,10 @@ class AlchemyFCOS(AnchorFreeDet2dHead):
         batch_gt_labels, batch_gt_bboxes = multi_apply(
             self._build_targets_single,
             batch_gt_instances,
-            points=concat_points,
-            regress_ranges=concat_regress_ranges,
-            num_points_per_lvl=num_lvl_points)
+            mlvl_points=concat_points,
+            num_lvl_points=num_lvl_points,
+            regress_ranges=concat_regress_ranges
+            )
         
         # 划分成每张图每层的gt
         batch_gt_labels = [gt_labels.split(num_lvl_points, 0) for gt_labels in batch_gt_labels]
@@ -374,94 +363,106 @@ class AlchemyFCOS(AnchorFreeDet2dHead):
 
         for i in range(self.num_levels):
             concat_lvl_labels.append(torch.cat([gt_labels[i] for gt_labels in batch_gt_labels]))
-            bbox_targets = torch.cat([gt_bboxes[i] for gt_bboxes in batch_gt_bboxes])
-
-            if self.norm_on_bbox:
-                bbox_targets = bbox_targets / self.strides[i]
-
-            concat_lvl_bbox_targets.append(bbox_targets)
+            concat_lvl_bbox_targets.append(torch.cat([gt_bboxes[i] for gt_bboxes in batch_gt_bboxes]))
 
         return concat_lvl_labels, concat_lvl_bbox_targets
     
-    def _build_targets_single(self, gt_instances: InstanceData, points: Tensor, regress_ranges: Tensor, num_points_per_lvl: List[int]) -> Tuple[Tensor, Tensor]:
+    def _build_targets_single(self, gt_instances: InstanceData, mlvl_points: Tensor, regress_ranges: Tensor, num_lvl_points: List[int]) -> Tuple[Tensor, Tensor]:
         """
         Compute regression and classification targets for a single image.
         """
-        num_points = points.size(0)   # 每张图一共有多少个点
         num_gts = len(gt_instances)
+        num_points = mlvl_points.size(0)   # 每张图一共有多少个点
 
-        gt_bboxes = gt_instances.bboxes
-        gt_labels = gt_instances.labels
+        gt_bboxes = gt_instances.bboxes    # [num_gts, 4]
+        gt_labels = gt_instances.labels    # [num_gts]
 
         if num_gts == 0:
             return gt_labels.new_full((num_points,), self.num_classes), gt_bboxes.new_zeros((num_points, 4))
 
         # 计算目标的面积
-        areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * (gt_bboxes[:, 3] - gt_bboxes[:, 1])
+        areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * (gt_bboxes[:, 3] - gt_bboxes[:, 1])  # [num_gts]
 
-        areas = areas[None].repeat(num_points, 1)
-        regress_ranges = regress_ranges[:, None, :].expand(num_points, num_gts, 2)
-        gt_bboxes = gt_bboxes[None].expand(num_points, num_gts, 4)
+        # 维度转换
+        areas = areas[None].repeat(num_points, 1)   # [num_points, num_gts]
+        regress_ranges = regress_ranges[:, None, :].expand(num_points, num_gts, 2)   # [num_points, num_gts, 2]
+        gt_bboxes = gt_bboxes[None].expand(num_points, num_gts, 4)   # [num_points, num_gts, 4]
 
-        # 获取点的坐标
-        xs, ys = points[:, 0], points[:, 1]
-        xs = xs[:, None].expand(num_points, num_gts)
+        # 获取点的坐标(输入图上的坐标)
+        xs, ys = mlvl_points[:, 0], mlvl_points[:, 1]   # [num_points]
+        xs = xs[:, None].expand(num_points, num_gts)    # [num_points, num_gts]
         ys = ys[:, None].expand(num_points, num_gts)
 
-        # 计算每个点到gt_box的距离
+        # 计算每个点距离4条边的距离
         left = xs - gt_bboxes[..., 0]
-        right = gt_bboxes[..., 2] - xs
         top = ys - gt_bboxes[..., 1]
+        right = gt_bboxes[..., 2] - xs
         bottom = gt_bboxes[..., 3] - ys
-        bbox_targets = torch.stack((left, top, right, bottom), -1)
+        bbox_targets = torch.stack((left, top, right, bottom), -1)   # 表示每个点距离所有gt_bbox4条边的距离值, 形状:[num_points, num_gts, 4]
 
         # 是否中心采样
         if self.center_sampling:
-            # condition1: 特征点在中心范围内
+            # condition1: 确定gt_box自身所对应的内部有效区域
             radius = self.center_sample_radius
-            center_xs = (gt_bboxes[..., 0] + gt_bboxes[..., 2]) / 2
+
+            # 计算所有gt_bbox各自的中心坐标
+            center_xs = (gt_bboxes[..., 0] + gt_bboxes[..., 2]) / 2    # [num_points, num_gts]
             center_ys = (gt_bboxes[..., 1] + gt_bboxes[..., 3]) / 2
             center_gts = torch.zeros_like(gt_bboxes)
-            stride = center_xs.new_zeros(center_xs.shape)
+            stride = center_xs.new_zeros(center_xs.shape)   # [num_points, num_gts]
 
-            # project the points on current lvl back to the `original` sizes
+            # 中心采样参数是全局参数，需要和各个输出层stride联合起来作为控制参数
+            # 例如: radius=1.5，
+            #    对于 stride=4 的层，采样半径是1.5x4
+            #    对于 stride=8 的层，采样半径是1.5x8
             lvl_begin = 0
-            for lvl_idx, num_points_lvl in enumerate(num_points_per_lvl):
+            for lvl_idx, num_points_lvl in enumerate(num_lvl_points):
                 lvl_end = lvl_begin + num_points_lvl
                 stride[lvl_begin:lvl_end] = self.strides[lvl_idx] * radius
                 lvl_begin = lvl_end
 
+            # 计算中心扩展范围后新的gt_bbox，实际上相当于向内缩小了
             x_mins = center_xs - stride
             y_mins = center_ys - stride
             x_maxs = center_xs + stride
             y_maxs = center_ys + stride
 
+            # 如果设置的半径范围太大，导致中心扩展范围超过了g_bbox 本身，则截断center_gts相当于4条边向内缩放后新的gt_bbox值
             center_gts[..., 0] = torch.where(x_mins > gt_bboxes[..., 0], x_mins, gt_bboxes[..., 0])
             center_gts[..., 1] = torch.where(y_mins > gt_bboxes[..., 1], y_mins, gt_bboxes[..., 1])
             center_gts[..., 2] = torch.where(x_maxs > gt_bboxes[..., 2], gt_bboxes[..., 2], x_maxs)
             center_gts[..., 3] = torch.where(y_maxs > gt_bboxes[..., 3], gt_bboxes[..., 3], y_maxs)
 
+            # 计算每个点距center_gts, 4条边的距离
             cb_dist_left = xs - center_gts[..., 0]
-            cb_dist_right = center_gts[..., 2] - xs
             cb_dist_top = ys - center_gts[..., 1]
+            cb_dist_right = center_gts[..., 2] - xs
             cb_dist_bottom = center_gts[..., 3] - ys
             center_bbox = torch.stack((cb_dist_left, cb_dist_top, cb_dist_right, cb_dist_bottom), -1)
-            inside_gt_bbox_mask = center_bbox.min(-1)[0] > 0
+
+            # 此时就可以得到进行中心采样后每个点是否是正样本(暂时), 在ltrb维度上去最小值, 若最小值>0则一定在范围内
+            inside_gt_bbox_mask = center_bbox.min(-1)[0] > 0   # [num_points, num_gts]
         else:
             # condition1: 在gt_box范围内
-            inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0
+            # 在不开启中心采样情况下，只要点距4条边的距离都大于0，那么说明该点可能在某个或者某几个gt_bbox内部, 暂时属于正样本
+            inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0  # [num_points, num_gts]
 
-        # condition2: 限制回归范围(点到gt_box的距离要在每层的设定范围内)
+        # condition2: 对于每个点, 计算最长边值, bbox_targets形状为[num_points, num_gts, 4]
         max_regress_distance = bbox_targets.max(-1)[0]
+
+        # 如果ltrb中最长边处于预设范围, 则属于正样本, 否则为负样本
         inside_regress_range = ((max_regress_distance >= regress_ranges[..., 0]) & (max_regress_distance <= regress_ranges[..., 1]))
 
-        # 如果一个位置仍对应很多目标, 选择面积最小的那个
+        # 不满足condition1和condition2的点作为负样本
         areas[inside_gt_bbox_mask == 0] = INF
         areas[inside_regress_range == 0] = INF
+
         min_area, min_area_inds = areas.min(dim=1)
 
         labels = gt_labels[min_area_inds]
         labels[min_area == INF] = self.num_classes  # set as BG
+
+        # 如果一个位置仍对应很多目标, 选择面积最小的那个
         bbox_targets = bbox_targets[range(num_points), min_area_inds]
 
         return labels, bbox_targets
