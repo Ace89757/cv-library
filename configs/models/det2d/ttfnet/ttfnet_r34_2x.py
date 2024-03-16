@@ -5,19 +5,13 @@
 _base_ = [
     '../../../_base_/runtimes/det2d.py',
     '../../../_base_/datasets/det2d_bdd100k.py',
-    '../../../_base_/pipelines/det2d_default.py',
-    '../../../_base_/lr_schedules/schedule_1x.py'
+    '../../../_base_/pipelines/det2d_default.py'
 ]
+
 
 batch_size = 32
 score_thr = 0.35
-
-times = 1
-epoch_1x = 12
-milestones_1x = [8, 11]
-
-max_epochs = int(epoch_1x * times)
-milestones = [int(x * times) for x in milestones_1x]
+repeat_times = 2
 
 
 """
@@ -50,24 +44,22 @@ model = dict(
         type='AlchemyFPN',
         in_channels=[64, 128, 256, 512],
         out_channels=128,
-        extra_layers_source='on_output',
-        out_indices=(0, 1, 2, 3, 4)
+        out_indices=(0, )
     ),
     head=dict(
-        type='AlchemyFCOS',
+        type='AlchemyTTFNet',
         in_channels=128,
-        stacked_convs=4,
-        feat_channels=128,
-        norm_on_bbox=True,
-        center_sampling=True,
-        centerness_on_reg=True,
-        strides=[4, 8, 16, 32, 64], 
+        bbox_convs=2,
+        bbox_channels=64,
+        heatmap_convs=2,
+        heatmap_channels=128,
+        base_anchor=16,
         num_classes={{_base_.num_classes}},
-        norm_cfg = norm_cfg,
-        loss_bbox=dict(type='EfficientIoULoss', loss_weight=1.0),
-        loss_centerness=dict(type='mmdet.CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-        loss_cls=dict(type='mmdet.FocalLoss', use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0),
-        test_cfg=dict(nms_pre=1000, min_bbox_size=0, score_thr=score_thr, nms=dict(type='nms', iou_threshold=0.5), max_per_img=100))
+        bbox_gaussian=True,
+        bbox_area_process='log',
+        loss_bbox=dict(type='EfficientIoULoss', loss_weight=5.0),
+        loss_heatmap=dict(type='mmdet.GaussianFocalLoss', loss_weight=1.0),
+        test_cfg=dict(topk=100, local_maximum_kernel=3, score_thr=score_thr))
     )
 
 
@@ -77,12 +69,16 @@ dataloader
 train_dataloader = dict(
     batch_size=batch_size,
     dataset=dict(
+        type='RepeatDataset',
+        times=repeat_times,
+        dataset=dict(
             type={{_base_.dataset_type}},
             data_root={{_base_.data_root}},
             ann_file={{_base_.train_ann_file}},
             data_prefix=dict(img_path='images'),
             pipeline={{_base_.train_pipeline}},
-            metainfo={{_base_.metainfo}})
+            metainfo={{_base_.metainfo}}
+        ))
     )
 
 val_dataloader = dict(
@@ -101,17 +97,11 @@ test_dataloader = val_dataloader
 
 
 """
-auto scale lr
-"""
-auto_scale_lr = dict(enable=True)
-
-
-"""
-learning rate
+scheduler
 """
 param_scheduler = [
-    dict(type='ConstantLR', factor=1.0 / 3, by_epoch=False, begin=0, end=500),
-    dict(type='MultiStepLR', begin=0, end=max_epochs, by_epoch=True, milestones=milestones, gamma=0.1)
+    dict(type='LinearLR', start_factor=1.0 / 5, by_epoch=False, begin=0, end=500),
+    dict(type='MultiStepLR', begin=0, end=12, by_epoch=True, milestones=[8, 11], gamma=0.1)
 ]
 
 
@@ -119,8 +109,22 @@ param_scheduler = [
 optimizer
 """
 optim_wrapper = dict(
-    optimizer=dict(lr=0.01),
+    type='OptimWrapper',
+    optimizer=dict(type='SGD', lr=0.016, momentum=0.9, weight_decay=0.0004),
     paramwise_cfg=dict(bias_lr_mult=2., bias_decay_mult=0.),
-    clip_grad=dict(max_norm=35, norm_type=2))
+    clip_grad=dict(max_norm=35, norm_type=2)
+    )
 
-train_cfg = dict(max_epochs=max_epochs)
+
+"""
+config
+"""
+test_cfg = dict(type='TestLoop')
+val_cfg = dict(type='AlchemyValLoop')
+train_cfg = dict(type='EpochBasedTrainLoop', val_interval=1, max_epochs=12)
+
+
+"""
+auto scale lr
+"""
+auto_scale_lr = dict(enable=True, base_batch_size=128)

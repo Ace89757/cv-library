@@ -3,7 +3,7 @@
 # Copyright by Ace, All Rights Reserved.
 
 _base_ = [
-    './ttfnet_r34_1x.py'
+    './ttfnet_r34_2x.py'
 ]
 
 

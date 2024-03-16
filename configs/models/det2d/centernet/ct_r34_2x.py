@@ -5,20 +5,12 @@
 _base_ = [
     '../../../_base_/runtimes/det2d.py',
     '../../../_base_/datasets/det2d_bdd100k.py',
-    '../../../_base_/pipelines/det2d_default.py',
-    '../../../_base_/lr_schedules/schedule_1x.py'
+    '../../../_base_/pipelines/det2d_default.py'
 ]
 
 batch_size = 32
 score_thr = 0.35
-
-times = 1
-epoch_1x = 28
-milestones_1x = [18, 24]
-
-max_epochs = int(epoch_1x * times)
-milestones = [int(x * times) for x in milestones_1x]
-
+repeat_times = 2
 
 """
 model
@@ -62,19 +54,19 @@ model = dict(
         test_cfg=dict(topk=100, local_maximum_kernel=3, score_thr=score_thr))
     )
 
-
-"""
-dataloader
-"""
 train_dataloader = dict(
     batch_size=batch_size,
     dataset=dict(
+        type='RepeatDataset',
+        times=repeat_times,
+        dataset=dict(
             type={{_base_.dataset_type}},
             data_root={{_base_.data_root}},
             ann_file={{_base_.train_ann_file}},
             data_prefix=dict(img_path='images'),
             pipeline={{_base_.train_pipeline}},
-            metainfo={{_base_.metainfo}})
+            metainfo={{_base_.metainfo}}
+        ))
     )
 
 val_dataloader = dict(
@@ -93,29 +85,33 @@ test_dataloader = val_dataloader
 
 
 """
-auto scale lr
-"""
-auto_scale_lr = dict(enable=True, base_batch_size=128)
-
-
-"""
-learning rate
+scheduler
 """
 param_scheduler = [
-    dict(
-        type='LinearLR', start_factor=0.001, by_epoch=False, begin=0, end=1000),
-    dict(
-        type='MultiStepLR',
-        begin=0,
-        end=max_epochs,
-        by_epoch=True,
-        milestones=[18, 24],
-        gamma=0.1)
+    dict(type='LinearLR', start_factor=0.001, by_epoch=False, begin=0, end=1000),
+    dict(type='MultiStepLR', begin=0, end=12, by_epoch=True, milestones=[8, 11], gamma=0.1)
 ]
+
 
 """
 optimizer
 """
-optim_wrapper = dict(clip_grad=dict(max_norm=35, norm_type=2))
+optim_wrapper = dict(
+    type='OptimWrapper',
+    optimizer=dict(type='SGD', lr=0.02, momentum=0.9, weight_decay=0.0001),
+    clip_grad=dict(max_norm=35, norm_type=2)
+    )
 
-train_cfg = dict(max_epochs=max_epochs)
+
+"""
+config
+"""
+test_cfg = dict(type='TestLoop')
+val_cfg = dict(type='AlchemyValLoop')
+train_cfg = dict(type='EpochBasedTrainLoop', val_interval=1, max_epochs=12)
+
+
+"""
+auto scale lr
+"""
+auto_scale_lr = dict(enable=True, base_batch_size=128)
