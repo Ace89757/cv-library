@@ -2,13 +2,13 @@
 # @Author  : ace
 # Copyright by Ace, All Rights Reserved.
 
-from .centernet import AlchemyCenterNet
-from .ttfnet import AlchemyTTFNet
-from .ttfnet_plus import AlchemyTTFNetPlus
-from .fcos import AlchemyFCOS
+from .centernet import AlchemyCenterNetHead
+from .ttfnet import AlchemyTTFNetHead
+from .ttfnet_plus import AlchemyTTFNetPlusHead
+from .fcos import AlchemyFCOSHead
 
 
 __all__ = [
     # det2d
-    'AlchemyCenterNet', 'AlchemyTTFNet', 'AlchemyTTFNetPlus', 'AlchemyFCOS'
+    'AlchemyCenterNetHead', 'AlchemyTTFNetHead', 'AlchemyTTFNetPlusHead', 'AlchemyFCOSHead'
 ]

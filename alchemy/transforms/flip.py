@@ -2,6 +2,7 @@
 # @Author  : ace
 # Copyright by Ace, All Rights Reserved. 
 
+import mmcv
 import numpy as np
 
 from mmdet.datasets.transforms import RandomFlip

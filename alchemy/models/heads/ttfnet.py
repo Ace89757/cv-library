@@ -10,20 +10,22 @@ from torch import Tensor
 from typing import Tuple, List, Dict
 
 from mmcv.cnn import ConvModule
+from mmcv.ops import batched_nms
 
+from mmengine.config import ConfigDict
 from mmengine.structures import InstanceData
 from mmengine.model import bias_init_with_prob, normal_init
 
 from mmdet.models.utils import multi_apply
+from mmdet.models.dense_heads.base_dense_head import BaseDenseHead
 from mmdet.utils import ConfigType, OptMultiConfig, InstanceList, OptInstanceList, OptConfigType
 
 from ...registry import MODELS
 from ..utils import cal_bboxes_area, gen_truncate_gaussian_target
-from .anchor_free_head import AnchorFreeDet2dHead
 
 
 @MODELS.register_module()
-class AlchemyTTFNet(AnchorFreeDet2dHead):
+class AlchemyTTFNetHead(BaseDenseHead):
     def __init__(self,
                  in_channels: int,
                  num_classes: int,
@@ -47,15 +49,23 @@ class AlchemyTTFNet(AnchorFreeDet2dHead):
         self.beta = beta
         self.alpha = alpha
         self.base_loc = None
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.test_cfg = test_cfg
+        self.train_cfg = train_cfg
         self.bbox_convs = bbox_convs
+        self.num_classes =num_classes
         self.base_anchor = base_anchor
+        self.in_channels = in_channels
         self.bbox_channels = bbox_channels
         self.heatmap_convs = heatmap_convs
         self.bbox_gaussian = bbox_gaussian
         self.heatmap_channels = heatmap_channels
         self.bbox_area_process = bbox_area_process
 
-        super().__init__(init_cfg=init_cfg, test_cfg=test_cfg, train_cfg=train_cfg, in_channels=in_channels, num_classes=num_classes, conv_cfg=conv_cfg, norm_cfg=norm_cfg)
+        super().__init__(init_cfg=init_cfg)
+
+        self.initial_head()
 
         # init loss
         self.loss_bbox = MODELS.build(loss_bbox)
@@ -64,6 +74,7 @@ class AlchemyTTFNet(AnchorFreeDet2dHead):
         # args
         self.topk = 100 if self.test_cfg is None else self.test_cfg.get('topk', 100)
         self.down_ratio = 4 if self.train_cfg is None else self.train_cfg.get('down_ratio', 4)
+        self.score_thr = 0.1 if self.test_cfg is None else self.test_cfg.get('score_thr', 0.1)
         self.local_maximum_kernel = 3 if self.test_cfg is None else self.test_cfg.get('local_maximum_kernel', 3)
 
     def initial_head(self) -> None:
@@ -99,12 +110,12 @@ class AlchemyTTFNet(AnchorFreeDet2dHead):
 
         return (bbox_pred, heatmap_pred)
     
-    def loss_by_feats(self, 
-                      bbox_pred: Tensor,
-                      heatmap_pred: Tensor, 
-                      batch_gt_instances: InstanceList, 
-                      batch_img_metas: List[dict], 
-                      batch_gt_instances_ignore: OptInstanceList = None) -> Dict[str, Tensor]:
+    def loss_by_feat(self, 
+                     bbox_pred: Tensor,
+                     heatmap_pred: Tensor, 
+                     batch_gt_instances: InstanceList, 
+                     batch_img_metas: List[dict], 
+                     batch_gt_instances_ignore: OptInstanceList = None) -> Dict[str, Tensor]:
         """
         Calculate the loss based on the features extracted by the detection head.
 
@@ -152,38 +163,41 @@ class AlchemyTTFNet(AnchorFreeDet2dHead):
             loss_bbox=loss_bbox
             )
     
-    def predict_by_feats(self, bbox_pred: Tensor, heatmap_pred: Tensor, batch_img_metas: List[dict], rescale: bool = False, **kwargs) -> List[Tensor]:
+    def predict_by_feat(self, bbox_pred: Tensor, heatmap_pred: Tensor, batch_img_metas: List[dict], rescale: bool = True, with_nms: bool = False) -> List[Tensor]:
         # decode
-        topk_bboxes, topk_scores, topk_labels = self._heatmap_decoding(bbox_pred, heatmap_pred)
+        batch_det_bboxes, batch_labels = self._heatmap_decoding(bbox_pred, heatmap_pred)
 
         # post process
         result_list = []
 
-        for idx in range(topk_bboxes.shape[0]):
-            scores = topk_scores[idx]
-            keep = scores > self.score_thr
+        # post-process
+        result_list = []
 
+        for batch_id, img_meta in enumerate(batch_img_metas):
+            det_bboxes = batch_det_bboxes[batch_id].view([-1, 5])
+            det_labels = batch_labels[batch_id].view(-1)
+
+            # filter by score thr
+            keep = det_bboxes[:, -1] > self.score_thr
             if sum(keep):
-                img_meta = batch_img_metas[idx]
-                det_bboxes = topk_bboxes[idx][keep]
+                det_bboxes = det_bboxes[keep]
+                det_labels = det_labels[keep]
 
-                # rescale -> raw
                 if rescale and 'scale_factor' in img_meta:
                     det_bboxes[..., :4] /= det_bboxes.new_tensor(img_meta['scale_factor']).repeat((1, 2))
 
-                det_scores = scores[keep]
-                det_labels = topk_labels[idx][keep]
+                if with_nms:
+                    det_bboxes, det_labels = self._bboxes_nms(det_bboxes, det_labels, self.test_cfg)
             else:
-                det_bboxes = topk_bboxes.new_zeros((0, 4))
-                det_scores = topk_bboxes.new_zeros((0, ))
-                det_labels = topk_bboxes.new_zeros((0, ))
+                det_bboxes = det_bboxes.new_zeros((0, 5))
+                det_labels = det_bboxes.new_zeros((0, ))
 
-            result = InstanceData()
-            result.bboxes = det_bboxes
-            result.scores = det_scores
-            result.labels = det_labels
+            results = InstanceData()
+            results.bboxes = det_bboxes[:, :-1]
+            results.scores = det_bboxes[:, -1]
+            results.labels = det_labels
 
-            result_list.append(result)
+            result_list.append(results)
         
         return result_list
     
@@ -414,6 +428,18 @@ class AlchemyTTFNet(AnchorFreeDet2dHead):
             topk_xs + bbox_pred[..., [2]],
             topk_ys + bbox_pred[..., [3]]
             ], dim=2)
+        
+        batch_bboxes = torch.cat((topk_bboxes, topk_scores[..., None]), dim=-1)
 
-        return topk_bboxes, topk_scores, topk_labels 
+        return batch_bboxes, topk_labels 
     
+    def _bboxes_nms(self, bboxes: Tensor, labels: Tensor, cfg: ConfigDict) -> Tuple[Tensor, Tensor]:
+        """bboxes nms."""
+        if labels.numel() > 0:
+            max_num = cfg.max_per_img
+            bboxes, keep = batched_nms(bboxes[:, :4], bboxes[:, -1].contiguous(), labels, cfg.nms)
+            if max_num > 0:
+                bboxes = bboxes[:max_num]
+                labels = labels[keep][:max_num]
+
+        return bboxes, labels

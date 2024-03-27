@@ -3,12 +3,12 @@
 # Copyright by Ace, All Rights Reserved.
 
 _base_ = [
-    './ttfnet_r34_2x.py'
+    './ttfnet_shufflenetv2_36e.py'
 ]
 
 
 model = dict(
-    head=dict(
-        type='AlchemyTTFNetPlus')
+    bbox_head=dict(
+        type='AlchemyTTFNetPlusHead')
     )
 

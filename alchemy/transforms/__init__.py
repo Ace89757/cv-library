@@ -3,6 +3,7 @@
 # Copyright by Ace, All Rights Reserved. 
 
 from .letterbox import AlchemyLetterBox
+from .letterbox_fixed import AlchemyLetterBoxFixed
 from .crop import AlchemyRandomCrop
 from .flip import AlchemyHorizontalFlip
 from .shift import AlchemyRandomShift

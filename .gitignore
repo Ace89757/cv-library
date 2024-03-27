@@ -162,3 +162,5 @@ cython_debug/
 # user
 work_dirs/
 data/
+.idea/
+.vscode/

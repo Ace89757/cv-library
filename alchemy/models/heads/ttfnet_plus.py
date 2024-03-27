@@ -11,11 +11,11 @@ from mmengine.structures import InstanceData
 
 from ...registry import MODELS
 from ..utils import cal_bboxes_area, gen_truncate_gaussian_target
-from .ttfnet import AlchemyTTFNet
+from .ttfnet import AlchemyTTFNetHead
 
 
 @MODELS.register_module()
-class AlchemyTTFNetPlus(AlchemyTTFNet):
+class AlchemyTTFNetPlusHead(AlchemyTTFNetHead):
     def _build_targets_single(self, gt_instances: InstanceData, featmap_size: Tuple[int, int]) -> Tuple[Tensor, ...]:
         """
         Generate regression and classification targets in single image.

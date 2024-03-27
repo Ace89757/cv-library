@@ -62,7 +62,9 @@ class AlchemyDet2dInferencer:
                  device: Optional[str] = None,
                  scope: Optional[str] = 'alchemy',
                  out_dir: str = None,
-                 palette: str = 'none') -> None:
+                 palette: str = 'none',
+                 bbox_line_width: int = 1,
+                 show_cls_name: bool = False) -> None:
         # scope
         self.scope = self._set_scope(scope)
 
@@ -97,7 +99,7 @@ class AlchemyDet2dInferencer:
         mmengine.mkdir_or_exist(self.pred_out_dir)
 
         # visualizer
-        self.visualizer = self._init_visualizer()
+        self.visualizer = self._init_visualizer(show_cls_name, bbox_line_width)
 
         # args
         self.num_predicted_imgs = 0
@@ -266,7 +268,7 @@ class AlchemyDet2dInferencer:
         pipeline_cfg[load_img_idx]['type'] = 'mmdet.InferencerLoader'
         return Compose(pipeline_cfg)
 
-    def _init_visualizer(self) -> Optional[Visualizer]:
+    def _init_visualizer(self, show_cls_name: bool = False, bbox_line_width: int = 1) -> Optional[Visualizer]:
         """Initialize visualizers.
 
         Args:
@@ -283,6 +285,8 @@ class AlchemyDet2dInferencer:
             name = f'{name}-{timestamp}'
         self.cfg.visualizer.name = name
         self.cfg.visualizer.save_dir = self.out_dir
+        self.cfg.visualizer.line_width = bbox_line_width
+        self.cfg.visualizer.show_cls_name = show_cls_name
         visualizer = VISUALIZERS.build(self.cfg.visualizer)
         visualizer.dataset_meta = self.model.dataset_meta
         return visualizer

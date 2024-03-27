@@ -2,10 +2,9 @@
 # @Author  : ace
 # Copyright by Ace, All Rights Reserved.
 
-from .ttfnet import AlchemyTTFNet
+from .shufflenetv2 import AlchemyShuffleNetV2
 
 
 __all__ = [
-    # det2d
-    'AlchemyTTFNet'
+    'AlchemyShuffleNetV2',
 ]

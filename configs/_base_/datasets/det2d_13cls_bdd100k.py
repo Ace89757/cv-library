@@ -53,3 +53,6 @@ val_evaluator = dict(
     )
 
 test_evaluator = val_evaluator
+
+
+score_thr = 0.35

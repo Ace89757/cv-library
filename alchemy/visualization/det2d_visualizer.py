@@ -77,6 +77,7 @@ class AlchemyDet2dLocalVisualizer(Visualizer):
 
     def __init__(self,
                  name: str = 'visualizer',
+                 show_cls_name: bool = False,
                  save_dir: Optional[str] = None,
                  image: Optional[np.ndarray] = None,
                  vis_backends: Optional[Dict] = None,
@@ -87,6 +88,7 @@ class AlchemyDet2dLocalVisualizer(Visualizer):
         self.alpha = alpha
         self.text_color = text_color
         self.line_width = line_width
+        self.show_cls_name = show_cls_name
 
         self.dataset_meta = {}
 
@@ -124,30 +126,51 @@ class AlchemyDet2dLocalVisualizer(Visualizer):
                 line_widths=self.line_width)
 
             # text
-            positions = bboxes[:, :2] + self.line_width
-            areas = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
-            scales = _get_adaptive_scales(areas)
+            if self.show_cls_name:
+                positions = bboxes[:, :2] + self.line_width
 
-            for i, (pos, label) in enumerate(zip(positions, labels)):
-                if 'label_names' in instances:
-                    label_text = instances.label_names[i]
+                areas = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
+                scales = _get_adaptive_scales(areas)
+
+                for i, (pos, label) in enumerate(zip(positions, labels)):
+                    if 'label_names' in instances:
+                        label_text = instances.label_names[i]
+                    else:
+                        label_text = classes[label] if classes is not None else f'class {label}'
+                    if 'scores' in instances:
+                        score = round(float(instances.scores[i]), 2)
+                        label_text += f': {score}'
+
+                    self.draw_texts(
+                        label_text,
+                        pos,
+                        colors=text_colors[i],
+                        font_sizes=int(13 * scales[i]),
+                        bboxes=[{
+                            'facecolor': 'black',
+                            'alpha': 0.8,
+                            'pad': 0.7,
+                            'edgecolor': 'none'
+                        }])
+            else:
+                # 显示类别颜色 (这样类别名称不遮挡目标)
+                if classes is not None:
+                    for idx, cls in enumerate(classes):
+                        self.draw_texts(
+                            cls, 
+                            np.array([10, 17 * (idx + 1)]),
+                            colors=bbox_palette[idx],
+                            font_sizes=10,
+                            bboxes=[{'facecolor': 'black', 'alpha': 0.8, 'pad': 0.7, 'edgecolor': 'none'}])
                 else:
-                    label_text = classes[label] if classes is not None else f'class {label}'
-                if 'scores' in instances:
-                    score = round(float(instances.scores[i]), 2)
-                    label_text += f': {score}'
+                    for idx, color in enumerate(bbox_palette):
+                        self.draw_texts(
+                            f'class: {idx}', 
+                            np.array([10, 17 * (idx + 1)]),
+                            colors=color,
+                            font_sizes=10,
+                            bboxes=[{'facecolor': 'black', 'alpha': 0.8, 'pad': 0.7, 'edgecolor': 'none'}])
 
-                self.draw_texts(
-                    label_text,
-                    pos,
-                    colors=text_colors[i],
-                    font_sizes=int(13 * scales[i]),
-                    bboxes=[{
-                        'facecolor': 'black',
-                        'alpha': 0.8,
-                        'pad': 0.7,
-                        'edgecolor': 'none'
-                    }])
 
         return self.get_image()
 

@@ -67,7 +67,7 @@ class AlchemyLetterBox(BaseTransform):
         index = np.random.randint(len(self.input_sizes))
         
         return self.input_sizes[index]
-
+    
     def _random_interp_method(self) -> Any:
         """Randomly select an scale from given candidates.
 
@@ -91,8 +91,11 @@ class AlchemyLetterBox(BaseTransform):
                 scale_h = input_h / raw_img_h
                 scale_w = input_w / raw_img_w
 
-            interpolation = self._random_interp_method()
-            img = cv2.resize(results['img'], (math.ceil(raw_img_w * scale_w), math.ceil(raw_img_h * scale_h)), interpolation=interpolation)
+            img = results['img']
+
+            if scale_h != 1.0 or scale_w != 1.0:
+                interpolation = self._random_interp_method()
+                img = cv2.resize(img, (math.ceil(raw_img_w * scale_w), math.ceil(raw_img_h * scale_h)), interpolation=interpolation)
             
             results['img'] = img
             results['img_shape'] = img.shape[:2]

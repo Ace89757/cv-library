@@ -6,3 +6,4 @@ from .heads import *
 from .necks import *
 from .losses import *
 from .detectors import *
+from .backbones import *
