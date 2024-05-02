@@ -1,7 +1,7 @@
 # CV Library
 本工程基于 :link: [OpenMMLab](https://openmmlab.com/codebase)开发，用于个人学习、记录。
 
-[MMEngine 官方文档](https://mmengine.readthedocs.io/zh-cn/latest/)
+:link: [MMEngine 官方文档](https://mmengine.readthedocs.io/zh-cn/latest/)
 
 [MMCV 官方文档](https://mmcv.readthedocs.io/zh-cn/latest/)
 
